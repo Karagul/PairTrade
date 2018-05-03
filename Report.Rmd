@@ -1,0 +1,121 @@
+---
+title: "Pair Trade Report"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+Pair Trade Report on Specific Pairs
+`r format(Sys.time(), '%d %B, %Y')`
+
+```{r, message=FALSE, warning=FALSE}
+#Required libraries
+.libPaths( c( .libPaths(), "C:\\Intern\\Berke\\Cointegration\\Programs\\r") )
+library("quantmod")
+library("tseries")
+#Load data
+hisse <- read.csv(file="bist.csv", header=TRUE, sep=",")
+```
+
+```{r, echo=FALSE, fig.height=7, fig.width=15, message=FALSE, warning=FALSE}
+Report <- function(hisse,ticker1,ticker2,...){
+
+  stock <- c(ticker1,ticker2)
+  fiyat <- subset(hisse, select = c(stock[1],stock[2]))
+ 
+  # Carry out linear regression on the two price series
+  comb1 = lm(fiyat[,1]~fiyat[,2])
+  comb2 = lm(fiyat[,2]~fiyat[,1])
+  # Performs the ADF test using a single lag order. 
+  # Picks the one with lower adf stat.
+  adfresult1 <- adf.test(comb1$residuals, k=2)
+  adfresult2 <- adf.test(comb2$residuals, k=2)
+  # Check both sides to obtain better stats.
+  if (adfresult1$statistic < adfresult2$statistic){
+    comb = comb1
+    adfresult = adfresult1
+  } else{
+    comb = comb2
+    adfresult = adfresult2
+    hold = fiyat[,1]
+    fiyat[,1] = fiyat[,2]
+    fiyat[,2] = hold
+    hold = stock[1]
+    stock[1] = stock[2]
+    stock[2] = hold
+    hold = ticker1
+    ticker1 = ticker2
+    ticker2 = hold
+  }
+
+  date <- as.Date(hisse$Date, "%d/%m/%Y")
+  startDate <- as.Date("2016", "%Y")
+  today <- as.Date(Sys.Date(), "%m/%d/%Y")
+  
+  Relative <- fiyat[,1]/fiyat[,2]
+  Relative[is.infinite(Relative)] <- 0
+  Relative[is.nan(Relative)] <- 0
+  Relative[is.na(Relative)] <- 0	
+  
+  roll <- rollmean(Relative,100,align="right",fill = 0)
+  hedgeRatio <- comb$coefficients[2] / (tail(fiyat[,1],1)/tail(fiyat[,2],1))
+  b <- scale(comb$residuals, center = TRUE, scale = TRUE)
+  maxmean <- mean(rollmax(b[which(b>0)],100))
+  minmean <- mean(rollapply(b[which(b<0)],100,min))
+  
+  zEntry <- maxmean * 0.8
+  zProfit <- maxmean * 0.5
+  zStop <- maxmean 
+  
+  nzEntry <- minmean * 0.8
+  nzProfit <-  minmean * 0.8
+  nzStop <- minmean
+  
+  zScore <- tail(b,1)
+  price <- rbind(fiyat,0)
+  price[gun+1,1] = fiyat[gun,1] 
+  price[gun+1,2] = fiyat[gun,2] 
+  
+  rsi <- RSI(Relative)
+  
+  # Plot closing prices
+  par(mfrow = c(2,2))
+  plot(date,fiyat[,1], type="l",xlim=c(startDate,today),ylim=range(tail(fiyat[,1],300)), xlab="Date", ylab="Prices", col="blue")
+  legend("bottomleft", c(paste(ticker1,"LHS"), paste(ticker2,"RHS")), lty=c(1, 1), col=c("blue", "red"), bg="white" )  
+  par(new=T)
+  plot(date,fiyat[,2], type="l",xlim=c(startDate,today),ylim=range(tail(fiyat[,2],300)), axes=F, xlab="", ylab="", col="red")
+  mtext(paste("Closing Prices",ticker1,ticker2))
+  axis(side=4)
+  
+
+  # Plot relative price
+  plot(date,Relative,xlim=c(startDate,today),ylim=range(tail(Relative,300)),xlab="Date", type="l", ylab="",col="gray25")
+  par(new=T)
+  plot(date,roll, type="l",xlim=c(startDate,today),ylim=range(tail(Relative,300)), axes=F, xlab="", ylab="", col="red")
+  legend("bottomleft", c("Relative Performance", "Rolling Mean"), lty=c(1,1), col=c("gray25", "red"), bg="white")  	
+  mtext(paste("Relative Performance:",ticker1,"/",ticker2))
+
+    # Plot spread
+  plot(date,b, type = "l",xlim=c(startDate,today), ylim=range(tail(b,300)), xlab="Date", ylab="",col="gray60")
+  abline(h = mean(b) , col = "red", lty = 2)
+  abline(h = zEntry , col = "seagreen", lty = 2)
+  abline(h = nzEntry , col = "seagreen", lty = 2)
+  legend("bottomleft", c("Entry Level", "Historical Mean", "Spread"), lty=c(2,2,1), col=c("seagreen", "red", "gray40"), bg="white" )  		
+  mtext(paste(zScore/zEntry,"Z Score of Spread"))
+  
+  # Plot rsi
+  plot(date,rsi,type="l",xlim=c(startDate,today),ylim=range(tail(rsi,300)), xlab="Date", ylab="Relative Strength Index",col="red")
+  mtext(paste(ticker1,"/",ticker2))
+  
+
+  
+}
+```
+
+```{r, echo=FALSE, fig.height=7, fig.width=15, message=FALSE, warning=FALSE}
+Report(hisse,"XU030","ICBCT")
+```
+
+
+
+

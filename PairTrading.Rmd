@@ -1,0 +1,189 @@
+---
+title: "Pair Trade Scanner"
+---
+
+Pair Trade Scanning by Company Categories
+`r format(Sys.time(), '%d %B, %Y')`
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+#Required libraries
+library("quantmod")
+library("tseries")
+library("RColorBrewer")
+#Load data
+hisse <- read.csv(file="bist.csv", header=TRUE, sep=",")
+```
+
+```{r,echo=FALSE,  message=FALSE, warning=FALSE}
+pairtest <- function(hisse,stocks){
+  len <- length(stocks)
+  # 2 combinations of all stocks given.
+  a <- combn(stocks,2)
+  i=1
+  cat("\n\n",deparse(substitute(stocks)),stocks)
+  zmatrix <- matrix(0,len,len,dimnames=list(stocks,stocks))
+  x <- 2        
+  y <- 1
+  c <- 3
+  sym <- len*(len-1)/2
+  for (i in 1:sym){
+    fiyat <- subset(hisse, select = c(a[1,i],a[2,i]))
+  
+    # Carry out linear regression on the two price serie
+    comb1 = lm(fiyat[,1]~fiyat[,2])
+    comb2 = lm(fiyat[,2]~fiyat[,1])
+    # Performs the ADF test using a single lag order. 
+    # Picks the one with lower adf stat.
+    adfresult1 <- adf.test(comb1$residuals, k=2)
+    adfresult2 <- adf.test(comb2$residuals, k=2)
+    # Check adfstatistic to obtain better results
+    if (adfresult1$statistic < adfresult2$statistic){
+      comb = comb1
+      adfresult = adfresult1
+    } 
+    else{
+      comb = comb2
+      adfresult = adfresult2
+      hold = fiyat[,1]
+      fiyat[,1] = fiyat[,2]
+      fiyat[,2] = hold
+      hold = a[1,i]
+      a[1,i] = a[2,i]
+      a[2,i] = hold 
+    }
+    gun = nrow(fiyat)
+    date <- as.Date(hisse$Date, "%d/%m/%Y")
+    startDate <- as.Date("2016", "%Y")
+    today <- as.Date(Sys.Date(), "%m/%d/%Y")
+
+    b <- scale(comb$residuals, center = TRUE, scale = TRUE)
+    maxmean <- mean(rollmax(b[which(b>0)],100))
+    minmean <- mean(rollapply(b[which(b<0)],100,min))
+
+    zEntry <- maxmean * 0.8
+    zProfit <- maxmean * 0.5
+    zStop <- maxmean 
+
+    nzEntry <- minmean * 0.8
+    nzProfit <-  minmean * 0.8
+    nzStop <- minmean
+
+    zScore <- tail(b,1)
+    price <- rbind(fiyat,0)
+    price[gun+1,1] = fiyat[gun,1] 
+    price[gun+1,2] = fiyat[gun,2] 
+
+
+    if(x > len){
+      y <- y+1
+      x <- c
+      c <- c+1
+    }
+    zmatrix[x,y] <- zScore/zEntry
+    x <- x+1
+    if(adfresult$p.value <= 0.01){
+
+      if( (zScore > zEntry  & zScore < zStop) | (zScore < nzEntry & zScore > nzStop) ){
+          
+        Relative <- fiyat[,1]/fiyat[,2]
+        Relative[is.infinite(Relative)] <- 0
+        Relative[is.nan(Relative)] <- 0
+        Relative[is.na(Relative)] <- 0  
+        
+        rsi1 <- tail(RSI(fiyat[,1]),1)
+        rsi2 <- tail(RSI(fiyat[,2]),1)
+        rsi3 <- tail(RSI(Relative),1)
+        roll <- rollmean(Relative,100,align="right",fill = 0)
+        hedgeRatio <- comb$coefficients[2] / (tail(fiyat[,1],1)/tail(fiyat[,2],1))
+       
+
+        if( (tail(roll,1) >= tail(Relative,1))& (rsi1<35 | rsi2>65 | rsi3>65 | rsi3<35) ){
+          cat("\nShort",a[2,i],tail(fiyat[,2],1),rsi2,"Long",a[1,i],tail(fiyat[,1],1),rsi1)
+        }else if((rsi2<35 | rsi1>65 | rsi3>65 | rsi3<35)){
+          cat("\nShort",a[1,i],tail(fiyat[,1],1),rsi1,"Long",a[2,i],tail(fiyat[,2],1),rsi2)
+        }
+      }
+    }
+  }
+  for(p in 1:len){
+    for(l in 1:len){
+      zmatrix[p,l]=zmatrix[l,p]
+    }
+  }  
+  my_palette <- colorRampPalette(c("red", "yellow", "green"))(n = 299)
+  heatmap(zmatrix, symm = TRUE,Colv = NA,Rowv = NA, col=my_palette,scale="column")
+}
+```
+
+```{r, message=FALSE, warning=FALSE}
+BANKA <- c("XU030","AKBNK","ALBRK","DENIZ","FINBN","GARAN","HALKB","ICBCT","ISCTR","SKBNK","TSKB","VAKBN","YKBNK")
+pairtest(hisse,BANKA)
+
+BILISIM <- c("XU030","ALCTL","ARENA","ARMDA","DESPC","DGATE","ESCOM","FONET","INDES","KAREL","KRONT","LINK","LOGO","NETAS","PKART","ASELS")
+pairtest(hisse,BILISIM)
+
+ELEKTRIK <- c("XU030","AKENR","AKSEN","AKSUE","AYEN","ODAS","ZOREN")
+pairtest(hisse,ELEKTRIK)
+
+ESYA <- c("XU030","ALCAR","ASUZU","ARCLK","BNTAS","BFREN","DITAS","EGEEN","EMKEL","FMIZP","FROTO","GEREL","IHEVA","JANTS","KARSN","KATMR","KLMSN","MAKTK","OTKAR","PARSN","SILVR","TOASO","TMSN","PRKAB","TTRAK","ULUSE","VESTL","VESBE")
+pairtest(hisse,ESYA)
+
+FAKTORING <- c("XU030","CRDFA","GARFA","ISFIN","LIDFA","SEKFK","VAKFN")
+pairtest(hisse,FAKTORING)
+
+GIDA <- c("XU030","AEFES","ALYAG","AVOD","BANVT","CCOLA","ERSU","KENT","KERVT","KNFRT","KRSTL","MERKO","OYLUM","PENGD","PETUN","PINSU","PNSUT","TATGD","TBORG","TUKAS","ULKER","ULUUN","VANGD")
+pairtest(hisse,GIDA)
+
+GMYO <- c("XU030","AGYO","AKFGY","AKMGY","AKSGY","ALGYO","ATAGY","AVGYO","DGGYO","EKGYO","HLGYO","ISGYO","KLGYO","MRGYO","MSGYO","NUGYO","OZGYO","OZKGY","PAGYO","PEGYO","RYGYO","SNGYO","SRVGY","TRGYO","TSGYO","VKGYO","YGGYO","YGYO","YKGYO")
+pairtest(hisse,GMYO)
+
+HOLDING <- c("XU030","ALARK","BERA","BOYP","BRYAT","DENGE","DOHOL","ECILC","ECZYT","EGCYO","EUHOL","GLRYH","GLYHO","GOZDE","GSDHO","HDFGS","IEYHO","IHLAS","IHYAY","ISGSY","ITTFH","KCHOL","METRO","NTHOL","OSTIM","POLHO","RHEAG","SAHOL","SISE","TAVHL","TKFEN","TRCAS","USAS","VERTU","VERUS","YAZIC")
+
+ILETISIM <- c("XU030","TCELL","TTKOM")
+pairtest(hisse,ILETISIM)
+
+INSAAT <- c("XU030","ANELE","EDIP","ENKAI","KUYAS","ORGE","SANEL","TURGG","YYAPI")
+pairtest(hisse,INSAAT)
+
+KIMYA <- c("XU030","ACSEL","AKSA","ALKIM","ATPET","AYGAZ","BAGFS","BRISA","BRKSN","DEVA","DYOBY","EGGUB","EGPRO","GEDZA","GOODY","GUBRF","HEKTS","IZFAS","MRSHL","PETKM","POLTK","RTALB","SASA","SEKUR","SODA","TMPOL","TUPRS")
+
+MADEN <- c("XU030","IHLGM","IPEKE","KOZAL","KOZAA","PRKME")
+pairtest(hisse,MADEN)
+
+METAL <- c("XU030","BRSAN","BURCE","COMDO","CELHA","CEMAS","CEMTS","CUSAN","DMSAS","ERBOS","EREGL","IZMDC","KRDMA","KRDMB","KRDMD","OZBAL","SARKY","TUCLK")
+pairtest(hisse,METAL)
+
+MKYO <- c("XU030","ATLAS","ECBYO","EUKYO","ETYAT","EUYO","GRNYO","ISYAT","OYAYO")
+pairtest(hisse,MKYO)
+
+ORMAN <- c("XU030","ALKA","BAKAB","DGZTE","DGKLB","DURDO","GENTS","HURGZ","IHGZT","KARTN","TIRE","OLMIP","PRZMA","SAMAT")
+pairtest(hisse,ORMAN)
+
+SIGORTA <- c("XU030","AKGRT","ANHYT","ANSGR","AVISA","GUSGR")
+pairtest(hisse,SIGORTA)
+
+SPOR <- c("XU030","BJKAS","FENER","GSRAY","TSPOR")
+pairtest(hisse,SPOR)
+
+TAS <- c("XU030","ADANA","ADBGR","ADNAC","AFYON","AKCNS","ANACM","ASLAN","BTCIM","BSOKE","BOLUC","BUCIM","CMBTN","CMENT","CIMSA","DENCM","EGSER","GOLTS","IZOCM","KONYA","KUTPO","MRDIN","NIBAS","NUHCM","TRKCM","USAK","UNYEC")
+pairtest(hisse,TAS)
+
+TEKSTIL <- c("XU030","ATEKS","ARSAN","BLCYT","BRMEN","BOSSA","DAGI","DERIM","HATEK","KORDS","MNDRS","SKTAS","YATAS","YUNSA")
+pairtest(hisse,TEKSTIL)
+
+TICARET <- c("XU030","ADESE","BIMAS","BIZIM","BMEKS","CRFSA","DOAS","INTEM","KIPA","MAVI","MEPET","MGROS","MIPAZ","PIMAS","PSDTC","SANKO","SELEC","TGSAS","TKNSA","VAKKO")
+pairtest(hisse,TICARET)
+
+TURIZM <- c("XU030","AVTUR","MAALT","MARTI","METUR","NTTUR","TEKTU","UTPYA")
+pairtest(hisse,TURIZM)
+
+ULASTIRMA <- c("XU030","BEYAZ","CLEBI","DOCO","GSDDE","PGSUS","RYSAS","THYAO")
+pairtest(hisse,ULASTIRMA)
+
+```
+
+```{r, echo=FALSE, fig.height=7, fig.width=15, message=FALSE, warning=FALSE}
+BIST30 <- c("AKBNK","ARCLK","ASELS","BIMAS","DOHOL","EKGYO","ENKAI","EREGL","GARAN","ISCTR","KRDMD","KCHOL","KOZAL","MAVI","OTKAR","PETKM","SAHOL","SODA","SISE","HALKB","TAVHL","TKFEN","TOASO","TCELL","TUPRS","THYAO","TTKOM","ULKER","VAKBN","YKBNK")
+pairtest(hisse,BIST30)
+```
+
